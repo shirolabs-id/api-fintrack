@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  cash
+  bank
+  ewallet
+  credit_card
+  investment
+  other
+}
+
+enum TransactionType {
+  income
+  expense
+  transfer
+}
+
+enum TransactionStatus {
+  completed
+  pending
+  cancelled
+}
+
+enum CategoryType {
+  income
+  expense
+}
+
+enum Frequency {
+  daily
+  weekly
+  monthly
+  yearly
+}
+
+enum DebtType {
+  debt
+  receivable
+}
+
+enum DebtStatus {
+  active
+  partially_paid
+  paid
+  overdue
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("user")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  accounts             Account[]
+  categories           Category[]
+  transactions         Transaction[]
+  budgets              Budget[]
+  savings              SavingGoal[]
+  savingsContributions SavingsContribution[]
+  debts                Debt[]
+  debtPayments         DebtPayment[]
+  recurrings           Recurring[]
+  notifications        Notification[]
+}
+
+model Account {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  type            AccountType
+  bankName        String?
+  accountNumber   String?
+  openingBalance  Int         @default(0)
+  currency        String      @default("IDR")
+  color           String      @default("#059669")
+  icon            String      @default("wallet")
+  creditLimit     Int?
+  billingCycleDay Int?
+  dueDateDay      Int?
+  isArchived      Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  transactionsFrom     Transaction[]         @relation("fromAccount")
+  transactionsTo       Transaction[]         @relation("toAccount")
+  budgets              Budget[]
+  savingsContributions SavingsContribution[]
+  debtPayments         DebtPayment[]
+  recurrings           Recurring[]
+
+  @@index([userId])
+}
+
+model Category {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  type      CategoryType
+  icon      String       @default("tag")
+  color     String       @default("#059669")
+  parentId  String?
+  parent    Category?    @relation("categoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[]   @relation("categoryTree")
+  isSystem  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  transactions Transaction[]
+  budgets      Budget[]
+  recurrings   Recurring[]
+
+  @@index([userId, type])
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        TransactionType
+  amount      Int
+  date        DateTime          @db.Date
+  accountId   String
+  account     Account           @relation("fromAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  toAccountId String?
+  toAccount   Account?          @relation("toAccount", fields: [toAccountId], references: [id], onDelete: Restrict)
+  categoryId  String?
+  category    Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  description String
+  merchant    String?
+  notes       String?
+  tags        String[]          @default([])
+  attachmentUrl String?
+  status      TransactionStatus @default(completed)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId, date(sort: Desc)])
+  @@index([userId, type])
+  @@index([accountId])
+  @@index([categoryId])
+}
+
+model Budget {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  period     String   @db.VarChar(7) // YYYY-MM
+  amount     Int
+  isRollover Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  account    Account? @relation(fields: [accountId], references: [id])
+  accountId  String?
+
+  @@unique([userId, categoryId, period])
+  @@index([userId, period])
+}
+
+model SavingGoal {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  targetAmount  Int
+  currentAmount Int       @default(0)
+  targetDate    DateTime? @db.Date
+  category      String?
+  color         String    @default("#059669")
+  icon          String    @default("piggy-bank")
+  notes         String?
+  isArchived    Boolean   @default(false)
+  isCompleted   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  contributions SavingsContribution[]
+
+  @@index([userId])
+}
+
+model SavingsContribution {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savingGoalId String
+  savingGoal   SavingGoal @relation(fields: [savingGoalId], references: [id], onDelete: Cascade)
+  accountId    String?
+  account      Account?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  amount       Int
+  date         DateTime   @db.Date
+  notes        String?
+  createdAt    DateTime   @default(now())
+
+  @@index([savingGoalId])
+}
+
+model Debt {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            DebtType
+  personName      String
+  totalAmount     Int
+  remainingAmount Int
+  startDate       DateTime   @db.Date
+  dueDate         DateTime?  @db.Date
+  status          DebtStatus @default(active)
+  description     String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  payments DebtPayment[]
+
+  @@index([userId, status])
+}
+
+model DebtPayment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  debtId    String
+  debt      Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  amount    Int
+  date      DateTime @db.Date
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([debtId])
+}
+
+model Recurring {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        TransactionType
+  amount      Int
+  frequency   Frequency
+  dayOfMonth  Int?
+  dayOfWeek   Int?
+  startDate   DateTime        @db.Date
+  endDate     DateTime?       @db.Date
+  lastRunDate DateTime?       @db.Date
+  isActive    Boolean         @default(true)
+  accountId   String
+  account     Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  description String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId, isActive])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
